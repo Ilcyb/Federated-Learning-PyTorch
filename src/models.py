@@ -118,3 +118,53 @@ class modelC(nn.Module):
         pool_out.squeeze_(-1)
         pool_out.squeeze_(-1)
         return pool_out
+
+class View(nn.Module):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def forward(self, x):
+        return x.view(*self.shape)
+
+class DCGANDiscriminator_mnist(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANDiscriminator_mnist, self).__init__()
+        self.main = nn.Sequential(
+            nn.Conv2d(1, 32, 5),
+            nn.Tanh(),
+            nn.MaxPool2d(3, 3),
+            nn.Conv2d(32, 64, 5),
+            nn.Tanh(),
+            nn.MaxPool2d(2, 2),
+            View(256),
+            nn.Linear(256, 200),
+            nn.Tanh(),
+            nn.Linear(200, 11),
+            nn.LogSoftmax()
+        )
+    
+    def forward(self, input):
+        return self.main(input)
+
+class DCGANGenerator_mnist(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANGenerator_mnist, self).__init__()
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(100, 256, 4, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(64, 1, 4, 2, 1, bias=False),
+            nn.Tanh()
+        )
+
+    def forward(self, input):
+        return self.main(input)
