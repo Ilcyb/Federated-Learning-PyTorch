@@ -2,9 +2,15 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
+import random
+from numpy.core.fromnumeric import shape
+from numpy.lib.type_check import imag
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
+import torchvision.utils as vutils
+import matplotlib.pyplot as plt
 
 
 class DatasetSplit(Dataset):
@@ -22,13 +28,37 @@ class DatasetSplit(Dataset):
         image, label = self.dataset[self.idxs[item]]
         return torch.tensor(image), torch.tensor(label)
 
+class AdversaryDataset(Dataset):
+    def __init__(self, datas, targets) -> None:
+        self.data = datas
+        self.targets = targets
+
+    def __getitem__(self, index: int):
+        x = self.data[index]
+        y = self.targets[index]
+        return x, y
+    
+    def __len__(self) -> int:
+        return len(self.data)
 
 class LocalUpdate(object):
-    def __init__(self, args, dataset, idxs, logger):
+    def __init__(self, args, dataset, idxs, logger, 
+    adversary=False, adversary_update=None, discriminator_model=None):
         self.args = args
         self.logger = logger
-        self.trainloader, self.validloader, self.testloader = self.train_val_test(
-            dataset, list(idxs))
+        self.adversary = adversary
+        if self.adversary:
+            self.adversary_update = adversary_update
+            self.adversary_update.update_discriminator(discriminator_model)
+            self.adversary_update.trainD()
+            _, fake_datas, fake_targets = self.adversary_update.generate_fake_datas((int)(len(idxs)*0.2))
+            self.adversary_dataloader = DataLoader(AdversaryDataset(fake_datas, fake_targets), 
+                                                    batch_size=args.local_bs, shuffle=True)
+            self.trainloader, self.validloader, self.testloader = self.train_val_test(
+                dataset, list(idxs))
+        else:
+            self.trainloader, self.validloader, self.testloader = self.train_val_test(
+                dataset, list(idxs))
         self.device = 'cuda' if args.gpu else 'cpu'
         # Default criterion set to NLL loss function
         self.criterion = nn.NLLLoss().to(self.device)
@@ -38,6 +68,7 @@ class LocalUpdate(object):
         Returns train, validation and test dataloaders for a given dataset
         and user indexes.
         """
+        # idx 是分给这个用户的data的索引列表 list类型
         # split indexes for train, validation, and test (80, 10, 10)
         idxs_train = idxs[:int(0.8*len(idxs))]
         idxs_val = idxs[int(0.8*len(idxs)):int(0.9*len(idxs))]
@@ -68,21 +99,31 @@ class LocalUpdate(object):
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.trainloader):
                 images, labels = images.to(self.device), labels.to(self.device)
-
                 model.zero_grad()
                 log_probs = model(images)
                 loss = self.criterion(log_probs, labels)
                 loss.backward()
                 optimizer.step()
 
-                if self.args.verbose and (batch_idx % 10 == 0):
-                    print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        global_round, iter, batch_idx * len(images),
-                        len(self.trainloader.dataset),
-                        100. * batch_idx / len(self.trainloader), loss.item()))
+                # if self.args.verbose and (batch_idx % 10 == 0):
+                    # print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    #     global_round, iter, batch_idx * len(images),
+                    #     len(self.trainloader.dataset),
+                    #     100. * batch_idx / len(self.trainloader), loss.item()))
                 self.logger.add_scalar('loss', loss.item())
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
+
+        if self.adversary:
+            for iter in range(self.args.local_ep):
+                for _, (images, labels) in enumerate(self.adversary_dataloader):
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    model.zero_grad()
+
+                    log_probs = model(images)
+                    loss = self.criterion(log_probs, labels)
+                    loss.backward()
+                    optimizer.step()
 
         return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -139,3 +180,60 @@ def test_inference(args, model, test_dataset):
 
     accuracy = correct/total
     return accuracy, loss
+
+def weight_init(m):
+    class_name = m.__class__.__name__
+    if class_name.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif class_name.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+class AdversaryUpdateMnist(object):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        self.args = args
+        self.logger = logger
+        self.device = 'cuda' if args.gpu else 'cpu'
+        # Default criterion set to NLL loss function
+        self.criterion = nn.NLLLoss().to(self.device)
+        self.modelD = discriminator_model.to(self.device)
+        self.modelG = generator_model.to(self.device)
+        self.modelG.apply(weight_init)
+        self.args = args
+        self.want_label_index = want_label_index
+        self.false_label_index = false_label_index
+        self.batch_size = args.local_gan_bs
+        # size of generate input
+        self.nz = 100
+        self.lr = 0.002
+        self.beta1 = 0.5
+
+    def update_discriminator(self, discriminator_model):
+        self.modelD = discriminator_model.to(self.device)
+
+    def trainD(self):
+        # if self.args.optimizer == 'sgd':
+        #     optimizer = torch.optim.SGD(self.modelG.parameters(), lr=self.args.lr,
+        #                                 momentum=0.5)
+        optimizer = torch.optim.Adam(self.modelG.parameters(), lr=self.lr, betas=(self.beta1, 0.999))
+        for epoch in range(self.args.local_gan_epoch):
+            noise = torch.randn(self.batch_size, self.nz, 1, 1, device=self.device)
+            fake = self.modelG(noise)
+            self.modelG.zero_grad()
+            wanted_labels = torch.full((self.batch_size,), self.want_label_index, dtype=torch.long, device=self.device)
+            output = self.modelD(fake)
+            loss = self.criterion(output, wanted_labels)
+            loss.backward()
+            optimizer.step()
+
+    def generate_fake_datas(self, num):
+        noise = torch.randn(num, self.nz, 1, 1, device=self.device)
+        # fake_tensors  type:float tensor  shape:[num*1*28*28]
+        fake_tensors = self.modelG(noise).to('cpu')
+        fake_images = []
+        fake_labels = []
+        for i in range(len(fake_tensors)):
+            fake_images.append(fake_tensors[i].detach())
+            fake_labels.append(self.false_label_index)
+        return ['fake - 10'], fake_images, fake_labels

@@ -12,10 +12,11 @@ from tqdm import tqdm
 
 import torch
 from tensorboardX import SummaryWriter
+import torchvision.utils as vutils
 
 from options import args_parser
-from update import LocalUpdate, test_inference
-from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar
+from update import LocalUpdate, test_inference, AdversaryUpdateMnist
+from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist
 from utils import get_dataset, average_weights, exp_details
 
 
@@ -24,7 +25,7 @@ if __name__ == '__main__':
 
     # define paths
     path_project = os.path.abspath('..')
-    logger = SummaryWriter('../logs')
+    logger = SummaryWriter('./logs')
 
     args = args_parser()
     exp_details(args)
@@ -35,6 +36,7 @@ if __name__ == '__main__':
 
     # load dataset and user groups
     train_dataset, test_dataset, user_groups = get_dataset(args)
+    global_model = None
 
     # BUILD MODEL
     if args.model == 'cnn':
@@ -54,13 +56,20 @@ if __name__ == '__main__':
             len_in *= x
             global_model = MLP(dim_in=len_in, dim_hidden=64,
                                dim_out=args.num_classes)
+
+    elif args.model == 'dcgan':
+        # deep convolutional generative adversarial networks
+        if args.dataset == 'mnist':
+            global_model = DCGANDiscriminator_mnist(args=args)
+        else:
+            # TODO add datasets support
+            exit('Error: unrecognized dataset')
     else:
         exit('Error: unrecognized model')
 
     # Set the model to train and send it to device.
     global_model.to(device)
     global_model.train()
-    print(global_model)
 
     # copy weights
     global_weights = global_model.state_dict()
@@ -72,19 +81,37 @@ if __name__ == '__main__':
     print_every = 2
     val_loss_pre, counter = 0, 0
 
+    # adversary model
+    if args.model == 'dcgan' and args.dataset == 'mnist':
+        generator_model = DCGANGenerator_mnist(args=args)
+        adversary_update = AdversaryUpdateMnist(copy.deepcopy(global_model), generator_model, 
+                                                args, logger, args.wanted_label_index)
+    elif args.model == 'dcgan' and args.dataset == 'cifar':
+        pass
+
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
         print(f'\n | Global Training Round : {epoch+1} |\n')
 
         global_model.train()
         m = max(int(args.frac * args.num_users), 1)
+        # 从总用户中随机抽取需要的用户
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        adversary_user = np.random.choice(idxs_users, 1, replace=False)[0]
 
         for idx in idxs_users:
-            local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                      idxs=user_groups[idx], logger=logger)
+            # TODO 不应该每一轮都新建一个Update类
+            global_model_copy = copy.deepcopy(global_model)
+            if args.model == 'dcgan' and idx == adversary_user:
+                local_model = LocalUpdate(args=args, dataset=train_dataset,
+                                        idxs=user_groups[idx], logger=logger,
+                                        adversary=True, adversary_update=adversary_update,
+                                        discriminator_model=global_model_copy)
+            else:
+                local_model = LocalUpdate(args=args, dataset=train_dataset,
+                                        idxs=user_groups[idx], logger=logger)
             w, loss = local_model.update_weights(
-                model=copy.deepcopy(global_model), global_round=epoch)
+                model=global_model_copy, global_round=epoch)
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss))
 
@@ -100,9 +127,12 @@ if __name__ == '__main__':
         # Calculate avg training accuracy over all users at every epoch
         list_acc, list_loss = [], []
         global_model.eval()
+        # print('test idx:{}'.format(idx))
         for c in range(args.num_users):
+            # FIXME
+            # 这里的user_groups[idx]是否应该是user_groups[c]?
             local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                      idxs=user_groups[idx], logger=logger)
+                                      idxs=user_groups[c], logger=logger)
             acc, loss = local_model.inference(model=global_model)
             list_acc.append(acc)
             list_loss.append(loss)
@@ -114,6 +144,11 @@ if __name__ == '__main__':
             print(f'Training Loss : {np.mean(np.array(train_loss))}')
             print('Train Accuracy: {:.2f}% \n'.format(100*train_accuracy[-1]))
 
+        # save generated fake images each epoch
+        randz = torch.randn(1, 100, 1, 1, device=device)
+        generated_fake_image = generator_model(randz).to('cpu').detach()
+        vutils.save_image(generated_fake_image, './generated_fake_datas/epoch_{}.png'.format(epoch))
+
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
 
@@ -122,7 +157,7 @@ if __name__ == '__main__':
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
 
     # Saving the objects train_loss and train_accuracy:
-    file_name = '../save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
+    file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
         format(args.dataset, args.model, args.epochs, args.frac, args.iid,
                args.local_ep, args.local_bs)
 
@@ -142,7 +177,7 @@ if __name__ == '__main__':
     # plt.plot(range(len(train_loss)), train_loss, color='r')
     # plt.ylabel('Training loss')
     # plt.xlabel('Communication Rounds')
-    # plt.savefig('../save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_loss.png'.
+    # plt.savefig('./save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_loss.png'.
     #             format(args.dataset, args.model, args.epochs, args.frac,
     #                    args.iid, args.local_ep, args.local_bs))
     #
@@ -152,6 +187,6 @@ if __name__ == '__main__':
     # plt.plot(range(len(train_accuracy)), train_accuracy, color='k')
     # plt.ylabel('Average Accuracy')
     # plt.xlabel('Communication Rounds')
-    # plt.savefig('../save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_acc.png'.
+    # plt.savefig('./save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_acc.png'.
     #             format(args.dataset, args.model, args.epochs, args.frac,
     #                    args.iid, args.local_ep, args.local_bs))

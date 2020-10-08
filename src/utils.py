@@ -7,6 +7,7 @@ import torch
 from torchvision import datasets, transforms
 from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal
 from sampling import cifar_iid, cifar_noniid
+import torchvision.utils as vutils
 
 
 def get_dataset(args):
@@ -71,6 +72,13 @@ def get_dataset(args):
 
     return train_dataset, test_dataset, user_groups
 
+# def add_data_to_dataset(dataset, new_classes, new_data, new_label):
+#     added_data_index_start = dataset.__len__()
+#     dataset.classes.extend(new_classes)
+#     dataset.data = torch.cat((dataset.data, new_data.to('cpu')))
+#     dataset.targets = torch.cat((dataset.targets, new_label.to('cpu')))
+#     added_data_index_end = dataset.__len__()
+#     return dataset, [i for i in range(added_data_index_start, added_data_index_end)]
 
 def average_weights(w):
     """

@@ -119,24 +119,18 @@ class modelC(nn.Module):
         pool_out.squeeze_(-1)
         return pool_out
 
-class View(nn.Module):
-    def __init__(self, shape):
-        self.shape = shape
-
-    def forward(self, x):
-        return x.view(*self.shape)
-
 class DCGANDiscriminator_mnist(nn.Module):
     def __init__(self, args) -> None:
         super(DCGANDiscriminator_mnist, self).__init__()
-        self.main = nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv2d(1, 32, 5),
             nn.Tanh(),
             nn.MaxPool2d(3, 3),
             nn.Conv2d(32, 64, 5),
             nn.Tanh(),
             nn.MaxPool2d(2, 2),
-            View(256),
+        )
+        self.fc = nn.Sequential(
             nn.Linear(256, 200),
             nn.Tanh(),
             nn.Linear(200, 11),
@@ -144,25 +138,38 @@ class DCGANDiscriminator_mnist(nn.Module):
         )
     
     def forward(self, input):
-        return self.main(input)
+        x = self.conv(input)
+        x = x.view(-1, 256)
+        return self.fc(x)
 
 class DCGANGenerator_mnist(nn.Module):
     def __init__(self, args) -> None:
         super(DCGANGenerator_mnist, self).__init__()
         self.main = nn.Sequential(
+            # 100*1
+
             nn.ConvTranspose2d(100, 256, 4, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(),
+            # 256*4*4
 
             nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(),
+            # 128*8*8
 
             nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(),
+            # 64*16*16
 
-            nn.ConvTranspose2d(64, 1, 4, 2, 1, bias=False),
+            # 按照论文里的结构得到的是1*32*32的输出，但mnist需要的是1*28*28
+            # nn.ConvTranspose2d(64, 1, 4, 2, 1, bias=False),
+            # nn.Tanh()
+            # # 1*32*32
+
+            # 修改结构
+            nn.ConvTranspose2d(64, 1, 4, 2, 3, bias=False),
             nn.Tanh()
         )
 
