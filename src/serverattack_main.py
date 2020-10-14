@@ -15,8 +15,8 @@ from tensorboardX import SummaryWriter
 import torchvision.utils as vutils
 
 from options import args_parser
-from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryUpdate
-from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist
+from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryGanUpdateCifar, AdversaryUpdate
+from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist, DCGANDiscriminator_cifar10, DCGANGenerator_cifar10
 from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, get_dataset_idxgroup_ganattack
 
 
@@ -65,6 +65,8 @@ if __name__ == '__main__':
         # deep convolutional generative adversarial networks
         if args.dataset == 'mnist':
             global_model = DCGANDiscriminator_mnist(args=args)
+        elif args.dataset == 'cifar':
+            global_model = DCGANDiscriminator_cifar10(args=args)
         else:
             # TODO add datasets support
             exit('Error: unrecognized dataset')
@@ -91,11 +93,14 @@ if __name__ == '__main__':
         adversary_gan_update = AdversaryGanUpdateMnist(copy.deepcopy(global_model), generator_model, 
                                                 args, logger, args.wanted_label_index, false_label_index=10)
     elif args.model == 'dcgan' and args.dataset == 'cifar':
-        pass
+        generator_model = DCGANGenerator_cifar10(args=args)
+        adversary_gan_update = AdversaryGanUpdateCifar(copy.deepcopy(global_model), generator_model, 
+                                                args, logger, args.wanted_label_index, false_label_index=10)
 
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
-        idx_group = get_dataset_idxgroup_ganattack(args, [[0,1,2,3,4,5], [6,7,8,9]], label_indexs)
+        label_split = [[i] for i in range(10)]
+        idx_group = get_dataset_idxgroup_ganattack(args, label_split, label_indexs)
         print(f'\n | Global Training Round : {epoch+1} |\n')
 
         global_model.train()

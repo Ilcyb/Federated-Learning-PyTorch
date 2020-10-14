@@ -76,8 +76,27 @@ def get_dataset(args):
 
 # 根据label将数据集整体划分为一个dict[key=label,value=dataset]
 def get_dataset_split_by_label(args):
+
+    train_dataset = None
+    test_dataset = None
+
     if args.dataset == 'cifar':
-        pass
+        data_dir = './data/cifar/'
+        apply_transform = transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        train_dataset = datasets.CIFAR10(data_dir, train=True, download=True,
+                                       transform=apply_transform)
+
+        test_dataset = datasets.CIFAR10(data_dir, train=False, download=True,
+                                      transform=apply_transform)
+        label_indexs = {}
+        for i in range(10):
+            label_indexs[i] = []
+        for i in range(len(train_dataset.targets)):
+            label_indexs[train_dataset.targets[i]].append(i)
+        return train_dataset, test_dataset, label_indexs
 
     elif args.dataset == 'mnist' or 'fmnist':
         if args.dataset == 'mnist':
@@ -95,12 +114,12 @@ def get_dataset_split_by_label(args):
         test_dataset = datasets.MNIST(data_dir, train=False, download=True,
                                       transform=apply_transform)
 
-        digit_indexs = {}
-        for digit in range(10):
-            idx = train_dataset.train_labels == digit
-            digit_indexs[digit] = [i for i in range(len(idx)) if idx[i]==True]
+        label_indexs = {}
+        for label in range(10):
+            idx = train_dataset.targets == label
+            label_indexs[label] = [i for i in range(len(idx)) if idx[i]==True]
         
-        return train_dataset, test_dataset, digit_indexs
+    return train_dataset, test_dataset, label_indexs
 
 # 将给定的多个数据集合成一个数据集
 def merge_multidatasets(*datasets):
