@@ -36,8 +36,9 @@ if __name__ == '__main__':
 
     # load dataset and user groups
     if args.model == 'dcgan':
-        _, _, user_groups = get_dataset(args)
-        train_dataset, test_dataset, label_indexs = get_dataset_split_by_label(args)
+        train_dataset, test_dataset, user_groups = get_dataset(args)
+        # _, _, user_groups = get_dataset(args)
+        # train_dataset, test_dataset, label_indexs = get_dataset_split_by_label(args)
     else:
         train_dataset, test_dataset, user_groups = get_dataset(args)
     global_model = None
@@ -95,20 +96,23 @@ if __name__ == '__main__':
 
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
-        idx_group = get_dataset_idxgroup_ganattack(args, [[0,1,2,3,4,5], [6,7,8,9]], label_indexs)
+        # label_split = [[i] for i in range(10)]
+        # idx_group = get_dataset_idxgroup_ganattack(args, label_split, label_indexs)
         print(f'\n | Global Training Round : {epoch+1} |\n')
 
         global_model.train()
         m = max(int(args.frac * args.num_users), 1)
         # 从总用户中随机抽取需要的用户
-        idxs_users = np.random.choice(range(0, args.num_users), m, replace=False)
+        idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        # if (len(idxs_users) != len(idx_group)):
+        #     raise ValueError('len(idx_users)!=len(idx_group)')
 
         data_idx = 0
         for idx in idxs_users:
             # TODO 不应该每一轮都新建一个Update类
             global_model_copy = copy.deepcopy(global_model)
             local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                        idxs=idx_group[data_idx], logger=logger)
+                                        idxs=user_groups[idx], logger=logger)
             w, loss = local_model.update_weights(
                 model=global_model_copy, global_round=epoch)
             local_weights.append(copy.deepcopy(w))

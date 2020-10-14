@@ -175,3 +175,15 @@ class DCGANGenerator_mnist(nn.Module):
 
     def forward(self, input):
         return self.main(input)
+
+class DCGANDiscriminator_cifar10(nn.Module):
+    pass
+
+class DCGANGenerator_cifar10(nn.module):
+    pass
+
+class DCGANDiscriminator_ATTFace(nn.module):
+    pass
+
+class DCGANGenerator_ATTFace(nn.module):
+    pass
