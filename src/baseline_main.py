@@ -18,7 +18,7 @@ from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar
 if __name__ == '__main__':
     args = args_parser()
     if args.gpu:
-        torch.cuda.set_device(args.gpu)
+        torch.cuda.set_device('cuda:{}'.format(args.gpu))
     device = 'cuda' if args.gpu else 'cpu'
 
     # load datasets
@@ -83,14 +83,28 @@ if __name__ == '__main__':
         loss_avg = sum(batch_loss)/len(batch_loss)
         print('\nTrain loss:', loss_avg)
         epoch_loss.append(loss_avg)
+    
+        with torch.no_grad():
+            correct = 0
+            total = 0
+            for data in torch.utils.data.DataLoader(test_dataset, batch_size=64, shuffle=True):
+                images, labels = data
+                images, labels = images.to(device), labels.to(device)
+                outputs = global_model(images)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        print('Accuracy of the network on the 10000 test images: %.3f %%' % (
+                100.0 * correct / total))
 
     # Plot loss
-    plt.figure()
-    plt.plot(range(len(epoch_loss)), epoch_loss)
-    plt.xlabel('epochs')
-    plt.ylabel('Train loss')
-    plt.savefig('../save/nn_{}_{}_{}.png'.format(args.dataset, args.model,
-                                                 args.epochs))
+    # plt.figure()
+    # plt.plot(range(len(epoch_loss)), epoch_loss)
+    # plt.xlabel('epochs')
+    # plt.ylabel('Train loss')
+    # plt.savefig('../save/nn_{}_{}_{}.png'.format(args.dataset, args.model,
+    #                                              args.epochs))
 
     # testing
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
