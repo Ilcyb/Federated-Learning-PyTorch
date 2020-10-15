@@ -5,6 +5,7 @@
 from torch import nn
 import torch
 import torch.nn.functional as F
+from torch.nn.modules.activation import LogSoftmax
 
 
 class MLP(nn.Module):
@@ -183,32 +184,37 @@ class DCGANDiscriminator_cifar10(nn.Module):
         self.conv = nn.Sequential(
             # 3*32*32
 
-            nn.Conv2d(3, 24, 5),
-            nn.Tanh(),
+            nn.Conv2d(3, 32, 5),
+            # 32*28*28
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
             nn.MaxPool2d(2),
-            # 24*14*14
+            # 32*14*14
             
-            nn.Conv2d(24, 48, 5),
-            nn.Tanh(),
-            nn.MaxPool2d(2),
-            # 48*5*5
+            nn.Conv2d(32, 64, 3),
+            # 64*12*12
+            nn.ReLU(),
 
-            nn.Conv2d(48, 96, 2),
-            nn.Tanh(),
+            nn.Conv2d(64, 128, 3),
+            # 128*10*10
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
             nn.MaxPool2d(2),
-            # 96*2*2
+            # 128*5*5
         )
 
         self.fc = nn.Sequential(
-            nn.Linear(384, 200),
-            nn.Tanh(),
+            nn.Linear(128*5*5, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 200),
+            nn.ReLU(),
             nn.Linear(200, 11),
             nn.LogSoftmax()
         )
-    
+
     def forward(self, input):
         x = self.conv(input)
-        x = x.view(-1, 384)
+        x = x.view(-1, 128*5*5)
         return self.fc(x)
 
 

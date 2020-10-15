@@ -10,6 +10,8 @@ from sampling import cifar_iid, cifar_noniid
 import torchvision.utils as vutils
 import math
 import numpy as np
+import pathlib
+import os
 
 
 def get_dataset(args):
@@ -199,3 +201,15 @@ def exp_details(args):
     print(f'    Local Batch size   : {args.local_bs}')
     print(f'    Local Epochs       : {args.local_ep}\n')
     return
+
+def get_experiment_result_location(model, dataset):
+    current_folder_path = pathlib.Path().absolute()
+    prefix = os.path.join(current_folder_path, os.path.join('generated_fake_datas', os.path.join(model, dataset)))
+    i=1
+    while True:
+        path = os.path.join(prefix, 'training_'+str(i))
+        if os.path.isdir(path):
+            i+=1
+            continue
+        os.makedirs(path)
+        return path
