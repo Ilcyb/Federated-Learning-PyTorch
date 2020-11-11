@@ -145,9 +145,10 @@ if __name__ == '__main__':
             print('Train Accuracy: {:.2f}% \n'.format(100*train_accuracy[-1]))
 
         # save generated fake images each epoch
-        randz = torch.randn(1, 100, 1, 1, device=device)
-        generated_fake_image = generator_model(randz).to('cpu').detach()
-        vutils.save_image(generated_fake_image, './generated_fake_datas/epoch_{}.png'.format(epoch))
+        if args.model == 'dcgan':
+            randz = torch.randn(1, 100, 1, 1, device=device)
+            generated_fake_image = generator_model(randz).to('cpu').detach()
+            vutils.save_image(generated_fake_image, './generated_fake_datas/epoch_{}.png'.format(epoch))
 
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)

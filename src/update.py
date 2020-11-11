@@ -231,7 +231,7 @@ class AdversaryGanUpdate():
         self.batch_size = args.local_gan_bs
         # size of generate input
         self.nz = 100
-        self.lr = 0.002
+        self.lr = args.local_gan_lr
         self.beta1 = 0.5
 
     def update_discriminator(self, discriminator_model):
@@ -270,6 +270,12 @@ class AdversaryGanUpdateMnist(AdversaryGanUpdate):
         args, logger, want_label_index, false_label_index)
 
 class AdversaryGanUpdateCifar(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
+
+class AdversaryGanUpdateSVHN(AdversaryGanUpdate):
     def __init__(self, discriminator_model, generator_model, args, 
     logger, want_label_index, false_label_index=10) -> None:
         super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
