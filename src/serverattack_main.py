@@ -15,9 +15,9 @@ from tensorboardX import SummaryWriter
 import torchvision.utils as vutils
 
 from options import args_parser
-from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryUpdate
-from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist
-from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, get_dataset_idxgroup_ganattack
+from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryGanUpdateCifar, AdversaryUpdate, AdversaryGanUpdateSVHN
+from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist, DCGANDiscriminator_cifar10, DCGANGenerator_cifar10, DCGANDiscriminator_SVHN, DCGANGenerator_SVHN
+from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, get_dataset_idxgroup_ganattack, get_experiment_result_location, save_grid, generate_gif_from_file, generate_gif_from_list,plot_loss_acc
 
 
 if __name__ == '__main__':
@@ -51,6 +51,7 @@ if __name__ == '__main__':
         elif args.dataset == 'fmnist':
             global_model = CNNFashion_Mnist(args=args)
         elif args.dataset == 'cifar':
+            # global_model = DCGANDiscriminator_cifar10(args=args)
             global_model = CNNCifar(args=args)
 
     elif args.model == 'mlp':
@@ -66,6 +67,10 @@ if __name__ == '__main__':
         # deep convolutional generative adversarial networks
         if args.dataset == 'mnist':
             global_model = DCGANDiscriminator_mnist(args=args)
+        elif args.dataset == 'cifar':
+            global_model = DCGANDiscriminator_cifar10(args=args)
+        elif args.dataset == 'svhn':
+            global_model = DCGANDiscriminator_SVHN(args=args)
         else:
             # TODO add datasets support
             exit('Error: unrecognized dataset')
@@ -81,18 +86,32 @@ if __name__ == '__main__':
 
     # Training
     train_loss, train_accuracy = [], []
+    fake_images = []
     val_acc_list, net_list = [], []
     cv_loss, cv_acc = [], []
     print_every = 2
     val_loss_pre, counter = 0, 0
+    save_location = get_experiment_result_location(args.model, args.dataset,
+                                                   args.wanted_label_index,
+                                                   {'ganlr': args.local_gan_lr, 
+                                                   'ganepoch': args.local_gan_epoch, 
+                                                   'optimizer': args.optimizer,
+                                                   'localepoch':args.local_ep},
+                                                   args.mode)
 
     # adversary model
     if args.model == 'dcgan' and args.dataset == 'mnist':
         generator_model = DCGANGenerator_mnist(args=args)
-        adversary_gan_update = AdversaryGanUpdateMnist(copy.deepcopy(global_model), generator_model, 
-                                                args, logger, args.wanted_label_index, false_label_index=10)
+        adversary_gan_update = AdversaryGanUpdateMnist(copy.deepcopy(global_model), generator_model,
+                                                       args, logger, args.wanted_label_index, false_label_index=10)
     elif args.model == 'dcgan' and args.dataset == 'cifar':
-        pass
+        generator_model = DCGANGenerator_cifar10(args=args)
+        adversary_gan_update = AdversaryGanUpdateCifar(copy.deepcopy(global_model), generator_model,
+                                                       args, logger, args.wanted_label_index, false_label_index=10)
+    elif args.model == 'dcgan' and args.dataset == 'svhn':
+        generator_model = DCGANGenerator_SVHN(args=args)
+        adversary_gan_update = AdversaryGanUpdateCifar(copy.deepcopy(global_model), generator_model,
+                                                       args, logger, args.wanted_label_index, false_label_index=10)
 
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
@@ -120,15 +139,16 @@ if __name__ == '__main__':
             data_idx += 1
 
         # 服务器进行攻击
-        global_model_copy = copy.deepcopy(global_model)
-        server_adversary = AdversaryUpdate(args=args, dataset=train_dataset,
-                                        idxs=[], logger=logger,
-                                        adversary_gan_update=adversary_gan_update,
-                                        discriminator_model=global_model_copy)
-        server_adversary.train_generator()
-        w = server_adversary.update_weights(
-            model=global_model_copy, global_round=epoch)
-        local_weights.append(copy.deepcopy(w))
+        if args.model == 'dcgan':
+            global_model_copy = copy.deepcopy(global_model)
+            server_adversary = AdversaryUpdate(args=args, dataset=train_dataset,
+                                               idxs=[], logger=logger,
+                                               adversary_gan_update=adversary_gan_update,
+                                               discriminator_model=global_model_copy)
+            server_adversary.train_generator()
+            w = server_adversary.update_weights(
+                model=global_model_copy, global_round=epoch)
+            local_weights.append(copy.deepcopy(w))
 
         # update global weights
         global_weights = average_weights(local_weights)
@@ -160,24 +180,32 @@ if __name__ == '__main__':
             print('Train Accuracy: {:.2f}% \n'.format(100*train_accuracy[-1]))
 
         # save generated fake images each epoch
-        randz = torch.randn(1, 100, 1, 1, device=device)
-        generated_fake_image = generator_model(randz).to('cpu').detach()
-        vutils.save_image(generated_fake_image, './generated_fake_datas/epoch_{}.png'.format(epoch))
+        if args.model == 'dcgan':
+            randz = torch.randn(1, 100, 1, 1, device=device)
+            generated_fake_image = generator_model(randz).to('cpu').detach()
+            vutils.save_image(
+                generated_fake_image, os.path.join(save_location, os.path.join('fake_images', 'epoch_{}.png'.format(epoch))))
+            fake_images.append(generated_fake_image[0])
 
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
+
+    plot_loss_acc(train_loss, train_accuracy, save_location)
+    generate_gif_from_file(os.path.join(save_location, 'fake_images'), os.path.join(save_location, 'training.gif'))
+    print('fake images shape:{}'.format(fake_images[0].shape))
+    save_grid(fake_images, save_location)
 
     print(f' \n Results after {args.epochs} global rounds of training:')
     print("|---- Avg Train Accuracy: {:.2f}%".format(100*train_accuracy[-1]))
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
 
     # Saving the objects train_loss and train_accuracy:
-    file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
-        format(args.dataset, args.model, args.epochs, args.frac, args.iid,
-               args.local_ep, args.local_bs)
+    # file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
+    #     format(args.dataset, args.model, args.epochs, args.frac, args.iid,
+    #            args.local_ep, args.local_bs)
 
-    with open(file_name, 'wb') as f:
-        pickle.dump([train_loss, train_accuracy], f)
+    # with open(file_name, 'wb') as f:
+    #     pickle.dump([train_loss, train_accuracy], f)
 
     print('\n Total Run Time: {0:0.4f}'.format(time.time()-start_time))
 

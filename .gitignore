@@ -3,4 +3,5 @@ __pycache__/
 data/
 logs/
 save/
+debug_save/
 generated_fake_datas/

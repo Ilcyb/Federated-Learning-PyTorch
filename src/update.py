@@ -215,7 +215,7 @@ def weight_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-class AdversaryGanUpdateMnist(object):
+class AdversaryGanUpdate():
     def __init__(self, discriminator_model, generator_model, args, 
     logger, want_label_index, false_label_index=10) -> None:
         self.args = args
@@ -231,7 +231,7 @@ class AdversaryGanUpdateMnist(object):
         self.batch_size = args.local_gan_bs
         # size of generate input
         self.nz = 100
-        self.lr = 0.002
+        self.lr = args.local_gan_lr
         self.beta1 = 0.5
 
     def update_discriminator(self, discriminator_model):
@@ -242,7 +242,7 @@ class AdversaryGanUpdateMnist(object):
         #     optimizer = torch.optim.SGD(self.modelG.parameters(), lr=self.args.lr,
         #                                 momentum=0.5)
         optimizer = torch.optim.Adam(self.modelG.parameters(), lr=self.lr, betas=(self.beta1, 0.999))
-        for epoch in range(self.args.local_gan_epoch):
+        for _ in range(self.args.local_gan_epoch):
             noise = torch.randn(self.batch_size, self.nz, 1, 1, device=self.device)
             fake = self.modelG(noise)
             self.modelG.zero_grad()
@@ -262,3 +262,21 @@ class AdversaryGanUpdateMnist(object):
             fake_images.append(fake_tensors[i].detach())
             fake_labels.append(self.false_label_index)
         return ['fake - 10'], fake_images, fake_labels
+
+class AdversaryGanUpdateMnist(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateMnist, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
+
+class AdversaryGanUpdateCifar(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
+
+class AdversaryGanUpdateSVHN(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)

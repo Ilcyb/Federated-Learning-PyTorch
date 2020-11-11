@@ -3,7 +3,9 @@
 # Python version: 3.6
 
 from torch import nn
+import torch
 import torch.nn.functional as F
+from torch.nn.modules.activation import LogSoftmax
 
 
 class MLP(nn.Module):
@@ -177,13 +179,173 @@ class DCGANGenerator_mnist(nn.Module):
         return self.main(input)
 
 class DCGANDiscriminator_cifar10(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANDiscriminator_cifar10, self).__init__()
+        self.conv = nn.Sequential(
+            # 3*32*32
+
+            nn.Conv2d(3, 32, 5),
+            # 32*28*28
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            # 32*14*14
+            
+            nn.Conv2d(32, 64, 3),
+            # 64*12*12
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, 3),
+            # 128*10*10
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            # 128*5*5
+        )
+
+        self.fc = nn.Sequential(
+            nn.Linear(128*5*5, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 200),
+            nn.ReLU(),
+            nn.Linear(200, 11),
+            nn.LogSoftmax()
+        )
+
+    def forward(self, input):
+        x = self.conv(input)
+        x = x.view(-1, 128*5*5)
+        return self.fc(x)
+
+
+class DCGANGenerator_cifar10(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANGenerator_cifar10, self).__init__()
+        self.main = nn.Sequential(
+            # 100*1
+
+            nn.ConvTranspose2d(100, 256, 4, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            # 256*4*4
+
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            # 128*8*8
+
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            # 64*16*16
+
+            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias=False),
+            nn.Tanh()
+            # 3*32*32
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
+    # def __init__(self, args):
+    #     super(DCGANGenerator_cifar10, self).__init__()
+    #     self.main = nn.Sequential(
+    #         # input is Z, going into a convolution
+    #         nn.ConvTranspose2d(100, 64 * 8, 4, 1, 0, bias=False),
+    #         nn.BatchNorm2d(64 * 8),
+    #         nn.ReLU(True),
+    #         # state size. (64*8) x 4 x 4
+    #         nn.ConvTranspose2d(64 * 8, 64 * 4, 4, 2, 1, bias=False),
+    #         nn.BatchNorm2d(64 * 4),
+    #         nn.ReLU(True),
+    #         # state size. (64*4) x 8 x 8
+    #         nn.ConvTranspose2d(64 * 4, 64 * 2, 4, 2, 1, bias=False),
+    #         nn.BatchNorm2d(64 * 2),
+    #         nn.ReLU(True),
+    #         # state size. (64*2) x 16 x 16
+    #         nn.ConvTranspose2d(64 * 2, 64, 4, 2, 1, bias=False),
+    #         nn.BatchNorm2d(64),
+    #         nn.ReLU(True),
+    #         # state size. (64) x 32 x 32
+    #         nn.ConvTranspose2d(64, 3, 5, 1, 2, bias=False),
+    #         nn.Tanh()
+    #         # state size. (3) x 32 x 32
+    #     )
+
+    # def forward(self, input):
+    #     output = self.main(input)
+    #     return output
+
+class DCGANDiscriminator_ATTFace(nn.Module):
     pass
 
-class DCGANGenerator_cifar10(nn.module):
+class DCGANGenerator_ATTFace(nn.Module):
     pass
 
-class DCGANDiscriminator_ATTFace(nn.module):
-    pass
+class DCGANDiscriminator_SVHN(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANDiscriminator_SVHN, self).__init__()
+        self.conv = nn.Sequential(
+            # 3*32*32
 
-class DCGANGenerator_ATTFace(nn.module):
-    pass
+            nn.Conv2d(3, 32, 5),
+            # 32*28*28
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            # 32*14*14
+            
+            nn.Conv2d(32, 64, 3),
+            # 64*12*12
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, 3),
+            # 128*10*10
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            # 128*5*5
+        )
+
+        self.fc = nn.Sequential(
+            nn.Linear(128*5*5, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 200),
+            nn.ReLU(),
+            nn.Linear(200, 11),
+            nn.LogSoftmax()
+        )
+
+    def forward(self, input):
+        x = self.conv(input)
+        x = x.view(-1, 128*5*5)
+        return self.fc(x)
+
+class DCGANGenerator_SVHN(nn.Module):
+    def __init__(self, args) -> None:
+        super(DCGANGenerator_SVHN, self).__init__()
+        self.main = nn.Sequential(
+            # 100*1
+
+            nn.ConvTranspose2d(100, 256, 4, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            # 256*4*4
+
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            # 128*8*8
+
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            # 64*16*16
+
+            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias=False),
+            nn.Tanh()
+            # 3*32*32
+        )
+
+    def forward(self, input):
+        return self.main(input)

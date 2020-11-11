@@ -3,14 +3,22 @@
 # Python version: 3.6
 
 import copy
+from numpy.lib.type_check import imag
 import torch
+from torch.utils import data
 from torchvision import datasets, transforms
 from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal
 from sampling import cifar_iid, cifar_noniid
+from sampling import attface_iid
+from sampling import svhn_iid
 import torchvision.utils as vutils
 import math
 import numpy as np
-
+import pathlib
+import os
+import imageio
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import MultipleLocator
 
 def get_dataset(args):
     """ Returns train and test datasets and a user group which is a dict where
@@ -32,10 +40,10 @@ def get_dataset(args):
 
         # sample training data amongst users
         if args.iid:
-            # Sample IID user data from Mnist
+            # Sample IID user data from cifar
             user_groups = cifar_iid(train_dataset, args.num_users)
         else:
-            # Sample Non-IID user data from Mnist
+            # Sample Non-IID user data from cifar
             if args.unequal:
                 # Chose uneuqal splits for every user
                 raise NotImplementedError()
@@ -43,7 +51,7 @@ def get_dataset(args):
                 # Chose euqal splits for every user
                 user_groups = cifar_noniid(train_dataset, args.num_users)
 
-    elif args.dataset == 'mnist' or 'fmnist':
+    elif args.dataset in ('mnist', 'fmnist'):
         if args.dataset == 'mnist':
             data_dir = './data/mnist/'
         else:
@@ -72,12 +80,54 @@ def get_dataset(args):
                 # Chose euqal splits for every user
                 user_groups = mnist_noniid(train_dataset, args.num_users)
 
+    elif args.dataset == 'attface':
+        data_dir = './data/attface/'
+        apply_transform = transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        # TODO
+    elif args.dataset == 'svhn':
+        data_dir = './data/svhn'
+        apply_transform = transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        
+        train_dataset = datasets.SVHN(data_dir, split='train', download=True,
+                                       transform=apply_transform)
+
+        test_dataset = datasets.SVHN(data_dir, split='test', download=True,
+                                      transform=apply_transform)
+        if args.iid:
+            # Sample IID user data from svhn
+            user_groups = mnist_iid(train_dataset, args.num_users)
+        else:
+            raise NotImplementedError()
+
     return train_dataset, test_dataset, user_groups
 
 # 根据label将数据集整体划分为一个dict[key=label,value=dataset]
 def get_dataset_split_by_label(args):
+
+    train_dataset = None
+    test_dataset = None
+
     if args.dataset == 'cifar':
-        pass
+        data_dir = './data/cifar/'
+        apply_transform = transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        train_dataset = datasets.CIFAR10(data_dir, train=True, download=True,
+                                       transform=apply_transform)
+
+        test_dataset = datasets.CIFAR10(data_dir, train=False, download=True,
+                                      transform=apply_transform)
+        label_indexs = {}
+        for i in range(10):
+            label_indexs[i] = []
+        for i in range(len(train_dataset.targets)):
+            label_indexs[train_dataset.targets[i]].append(i)
+        return train_dataset, test_dataset, label_indexs
 
     elif args.dataset == 'mnist' or 'fmnist':
         if args.dataset == 'mnist':
@@ -95,12 +145,12 @@ def get_dataset_split_by_label(args):
         test_dataset = datasets.MNIST(data_dir, train=False, download=True,
                                       transform=apply_transform)
 
-        digit_indexs = {}
-        for digit in range(10):
-            idx = train_dataset.train_labels == digit
-            digit_indexs[digit] = [i for i in range(len(idx)) if idx[i]==True]
+        label_indexs = {}
+        for label in range(10):
+            idx = train_dataset.targets == label
+            label_indexs[label] = [i for i in range(len(idx)) if idx[i]==True]
         
-        return train_dataset, test_dataset, digit_indexs
+    return train_dataset, test_dataset, label_indexs
 
 # 将给定的多个数据集合成一个数据集
 def merge_multidatasets(*datasets):
@@ -180,3 +230,76 @@ def exp_details(args):
     print(f'    Local Batch size   : {args.local_bs}')
     print(f'    Local Epochs       : {args.local_ep}\n')
     return
+
+def get_experiment_result_location(model:str, dataset:str, label:int, hyperparams:dict, mode:str):
+    name_prefix = ''
+    for name, value in hyperparams.items():
+        if name_prefix!='':
+            name_prefix+='_'
+        name_prefix+='{}_{}'.format(name, value)
+    current_folder_path = pathlib.Path().absolute()
+    if mode == 'debug':
+        prefix = os.path.join(current_folder_path, os.path.join(
+            'debug_save', os.path.join(model, os.path.join(dataset, os.path.join(str(label), name_prefix)))))
+    elif mode == 'production':
+        prefix = os.path.join(current_folder_path, os.path.join(
+            'save', os.path.join(model, os.path.join(dataset, os.path.join(str(label), name_prefix)))))
+    i=1
+    while True:
+        path = os.path.join(prefix, 'training_'+str(i))
+        if os.path.isdir(path):
+            i+=1
+            continue
+        os.makedirs(path)
+        os.makedirs(os.path.join(path, 'fake_images'))
+        return path
+
+def save_grid(images, path):
+    size = math.ceil((int)(math.sqrt(len(images))))
+    grid = vutils.make_grid(images, size)
+    vutils.save_image(grid, os.path.join(path, 'fake_images_grid.png'))
+
+def generate_gif_from_file(image_folder, gif_path, duration=0.1):
+    image_paths = []
+    files = os.listdir(image_folder)
+    for file in files:
+        image_path = os.path.join(image_folder, file)
+        image_paths.append(image_path)
+
+    frames = []
+    for image_path in image_paths:
+        frames.append(imageio.imread(image_path))
+    imageio.mimsave(gif_path, frames, 'GIF', duration=duration)
+
+def generate_gif_from_list(image_list, gif_path, duration=0.1):
+    frames = []
+    for image in image_list:
+        frames.append(image)
+    imageio.mimsave(gif_path, frames, 'GIF', duration=duration)
+
+def plot_loss_acc(loss, acc, path):
+    x = [i+1 for i in range(len(loss))]
+    plt.plot(x, loss, 'r--', label='loss')
+    plt.title('Loss')
+    plt.xlabel('iter')
+    plt.ylabel('loss value')
+    plt.xticks(range(len(x)))
+    x_major_locator=MultipleLocator((int)(len(loss)/8))
+    ax=plt.gca()
+    ax.xaxis.set_major_locator(x_major_locator)
+    plt.legend()
+    plt.savefig(os.path.join(path, 'loss.png'))
+
+    plt.clf()
+
+    plt.plot(x, [a*100 for a in acc], 'g--', label='acc')
+    plt.title('Accuracy')
+    plt.xlabel('iter')
+    plt.ylabel('accuracy rate(%)')
+    plt.xticks(range(len(x)))
+    x_major_locator=MultipleLocator((int)(len(acc)/8))
+    ax=plt.gca()
+    ax.xaxis.set_major_locator(x_major_locator)
+    plt.legend()
+    plt.savefig(os.path.join(path, 'acc.png'))
+    
