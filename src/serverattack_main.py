@@ -36,9 +36,9 @@ if __name__ == '__main__':
 
     # load dataset and user groups
     if args.model == 'dcgan':
-        train_dataset, test_dataset, user_groups = get_dataset(args)
-        # _, _, user_groups = get_dataset(args)
-        # train_dataset, test_dataset, label_indexs = get_dataset_split_by_label(args)
+        # train_dataset, test_dataset, user_groups = get_dataset(args)
+        _, _, user_groups = get_dataset(args)
+        train_dataset, test_dataset, label_indexs = get_dataset_split_by_label(args)
     else:
         train_dataset, test_dataset, user_groups = get_dataset(args)
     global_model = None
@@ -96,7 +96,8 @@ if __name__ == '__main__':
                                                    {'ganlr': args.local_gan_lr, 
                                                    'ganepoch': args.local_gan_epoch, 
                                                    'optimizer': args.optimizer,
-                                                   'localepoch':args.local_ep})
+                                                   'localepoch':args.local_ep},
+                                                   args.mode)
 
     # adversary model
     if args.model == 'dcgan' and args.dataset == 'mnist':
@@ -115,6 +116,7 @@ if __name__ == '__main__':
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
         label_split = [[i] for i in range(10)]
+        idx_group = get_dataset_idxgroup_ganattack(args, label_split, label_indexs)
         print(f'\n | Global Training Round : {epoch+1} |\n')
 
         global_model.train()
@@ -123,12 +125,15 @@ if __name__ == '__main__':
         idxs_users = np.random.choice(
             range(0, args.num_users), m, replace=False)
 
+        # FIXME 当前non-iid实现下 label的划分组合个数只能写死 所以参加训练的用户数也只能为这个写死的固定值
+        assert len(label_split) == max(int(args.frac * args.num_users), 1)
+
         data_idx = 0
         for idx in idxs_users:
             # TODO 不应该每一轮都新建一个Update类
             global_model_copy = copy.deepcopy(global_model)
             local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                      idxs=user_groups[idx], logger=logger)
+                                      idxs=idx_group[data_idx], logger=logger)
             w, loss = local_model.update_weights(
                 model=global_model_copy, global_round=epoch)
             local_weights.append(copy.deepcopy(w))
@@ -197,12 +202,12 @@ if __name__ == '__main__':
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
 
     # Saving the objects train_loss and train_accuracy:
-    file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
-        format(args.dataset, args.model, args.epochs, args.frac, args.iid,
-               args.local_ep, args.local_bs)
+    # file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
+    #     format(args.dataset, args.model, args.epochs, args.frac, args.iid,
+    #            args.local_ep, args.local_bs)
 
-    with open(file_name, 'wb') as f:
-        pickle.dump([train_loss, train_accuracy], f)
+    # with open(file_name, 'wb') as f:
+    #     pickle.dump([train_loss, train_accuracy], f)
 
     print('\n Total Run Time: {0:0.4f}'.format(time.time()-start_time))
 

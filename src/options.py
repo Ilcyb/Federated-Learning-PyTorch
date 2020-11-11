@@ -60,6 +60,7 @@ def args_parser():
                         help='rounds of early stopping')
     parser.add_argument('--verbose', type=int, default=1, help='verbose')
     parser.add_argument('--seed', type=int, default=1, help='random seed')
+    parser.add_argument('--mode', type=str, default='debug', help='running mode')
 
     # DCGAN arguments
     parser.add_argument('--local_gan_epoch', type=int, default=10, help='dcgan train epoch')
