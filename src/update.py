@@ -148,9 +148,6 @@ class AdversaryUpdate(LocalUpdate):
     def train_generator(self):
         self.adversary_gan_update.update_discriminator(self.discriminator_model)
         self.adversary_gan_update.trainD()
-        _, fake_datas, fake_targets = self.adversary_gan_update.generate_fake_datas(100)
-        self.adversary_dataloader = DataLoader(AdversaryDataset(fake_datas, fake_targets), 
-                                                batch_size=self.args.local_bs, shuffle=True)
 
     def update_weights(self, model, global_round):
         # 服务器不针对常规数据集进行训练

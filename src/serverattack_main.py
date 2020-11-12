@@ -138,18 +138,6 @@ if __name__ == '__main__':
             local_losses.append(copy.deepcopy(loss))
             data_idx += 1
 
-        # 服务器进行攻击
-        if args.model == 'dcgan':
-            global_model_copy = copy.deepcopy(global_model)
-            server_adversary = AdversaryUpdate(args=args, dataset=train_dataset,
-                                               idxs=[], logger=logger,
-                                               adversary_gan_update=adversary_gan_update,
-                                               discriminator_model=global_model_copy)
-            server_adversary.train_generator()
-            w = server_adversary.update_weights(
-                model=global_model_copy, global_round=epoch)
-            local_weights.append(copy.deepcopy(w))
-
         # update global weights
         global_weights = average_weights(local_weights)
 
@@ -179,8 +167,15 @@ if __name__ == '__main__':
             print(f'Training Loss : {np.mean(np.array(train_loss))}')
             print('Train Accuracy: {:.2f}% \n'.format(100*train_accuracy[-1]))
 
-        # save generated fake images each epoch
-        if args.model == 'dcgan':
+    # 服务器进行攻击
+    if args.model == 'dcgan':
+        global_model_copy = copy.deepcopy(global_model)
+        server_adversary = AdversaryUpdate(args=args, dataset=train_dataset,
+                                            idxs=[], logger=logger,
+                                            adversary_gan_update=adversary_gan_update,
+                                            discriminator_model=global_model_copy)
+        for epoch in range(args.epochs):
+            server_adversary.train_generator()
             randz = torch.randn(1, 100, 1, 1, device=device)
             generated_fake_image = generator_model(randz).to('cpu').detach()
             vutils.save_image(
