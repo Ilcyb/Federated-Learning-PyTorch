@@ -100,7 +100,8 @@ if __name__ == '__main__':
                                                    'ganepoch': args.local_gan_epoch, 
                                                    'optimizer': args.optimizer,
                                                    'localepoch':args.local_ep},
-                                                   args.mode)
+                                                   args.mode,
+                                                   args.experiment_name)
 
     # adversary model
     if args.model == 'dcgan' and args.dataset == 'mnist':

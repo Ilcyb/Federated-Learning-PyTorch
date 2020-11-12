@@ -67,6 +67,7 @@ def args_parser():
     parser.add_argument('--local_gan_bs', type=int, default=50, help='dcgan train batch size')
     parser.add_argument('--local_gan_lr', type=float, default=0.0002, help='dcgan train batch size')
     parser.add_argument('--wanted_label_index', type=int, default=1, help='dcgan train wanted fake label')
+    parser.add_argument('--experiment_name', type=str, default=None, help='experiment name')
 
     args = parser.parse_args()
     return args
