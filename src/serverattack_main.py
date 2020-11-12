@@ -178,6 +178,7 @@ if __name__ == '__main__':
                                             adversary_gan_update=adversary_gan_update,
                                             discriminator_model=global_model_copy)
         want_targets = (train_dataset.targets == args.wanted_label_index)
+        want_targets = [i for i in range(len(want_targets)) if want_targets[i]==True]
         for epoch in range(args.epochs):
             server_adversary.train_generator()
             randz = torch.randn(1, 100, 1, 1, device=device)
