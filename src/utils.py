@@ -231,12 +231,14 @@ def exp_details(args):
     print(f'    Local Epochs       : {args.local_ep}\n')
     return
 
-def get_experiment_result_location(model:str, dataset:str, label:int, hyperparams:dict, mode:str):
+def get_experiment_result_location(model:str, dataset:str, label:int, hyperparams:dict, mode:str, experiment_name=None):
     name_prefix = ''
     for name, value in hyperparams.items():
         if name_prefix!='':
             name_prefix+='_'
         name_prefix+='{}_{}'.format(name, value)
+    if experiment_name != None:
+        name_prefix+=experiment_name
     current_folder_path = pathlib.Path().absolute()
     if mode == 'debug':
         prefix = os.path.join(current_folder_path, os.path.join(
