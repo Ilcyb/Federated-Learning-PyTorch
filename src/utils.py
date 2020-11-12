@@ -302,4 +302,28 @@ def plot_loss_acc(loss, acc, path):
     ax.xaxis.set_major_locator(x_major_locator)
     plt.legend()
     plt.savefig(os.path.join(path, 'acc.png'))
+
+    plt.clf()
     
+def compute_avgpsnr(generated_image, batch_images, max_value=255):
+    """"Calculating peak signal-to-noise ratio (PSNR) between two images."""
+    psnrs = np.zeros(len(batch_images))
+    for i in range(len(batch_images)):
+        mse = np.mean((np.array(generated_image, dtype=np.float32) - np.array(batch_images[i], dtype=np.float32)) ** 2)
+        if mse == 0:
+            psnrs[i] = 100
+        psnrs[i] = 20 * np.log10(max_value / (np.sqrt(mse)))
+    return psnrs.mean()
+
+def plot_avg_psnr(avg_psnrs, path):
+    x = [i+1 for i in range(len(avg_psnrs))]
+    plt.plot(x, avg_psnrs, 'r', label='AVG PSNR')
+    plt.title('AVG PSNR')
+    plt.xlabel('iter')
+    plt.ylabel('psnr value')
+    plt.xticks(range(len(x)))
+    x_major_locator=MultipleLocator((int)(len(avg_psnrs)/8))
+    ax=plt.gca()
+    ax.xaxis.set_major_locator(x_major_locator)
+    plt.legend()
+    plt.savefig(os.path.join(path, 'avg_psnr.png'))
