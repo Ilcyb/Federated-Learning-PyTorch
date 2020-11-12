@@ -17,8 +17,9 @@ import torchvision.utils as vutils
 from options import args_parser
 from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryGanUpdateCifar, AdversaryUpdate, AdversaryGanUpdateSVHN
 from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist, DCGANDiscriminator_cifar10, DCGANGenerator_cifar10, DCGANDiscriminator_SVHN, DCGANGenerator_SVHN
-from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, get_dataset_idxgroup_ganattack, get_experiment_result_location, save_grid, generate_gif_from_file, generate_gif_from_list,plot_loss_acc
-
+from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, \
+                  get_dataset_idxgroup_ganattack, get_experiment_result_location, save_grid, generate_gif_from_file, \
+                  generate_gif_from_list,plot_loss_acc, compute_avgpsnr, plot_avg_psnr
 
 if __name__ == '__main__':
     start_time = time.time()
@@ -89,6 +90,7 @@ if __name__ == '__main__':
     fake_images = []
     val_acc_list, net_list = [], []
     cv_loss, cv_acc = [], []
+    avg_psnrs = []
     print_every = 2
     val_loss_pre, counter = 0, 0
     save_location = get_experiment_result_location(args.model, args.dataset,
@@ -186,11 +188,21 @@ if __name__ == '__main__':
             vutils.save_image(
                 generated_fake_image, os.path.join(save_location, os.path.join('fake_images', 'epoch_{}.png'.format(epoch))))
             fake_images.append(generated_fake_image[0])
+            want_targets = (train_dataset.targets == args.wanted_label_index)
+            want_targets = [i for i in range(len(want_targets)) if want_targets[i]==True]
+            # 随机抽取图片计算 AVG PSNR
+            random_image_idxs = np.random.choice(want_targets, 10, replace=False)
+            batch_images = []
+            for idx in random_image_idxs:
+                batch_images.append(train_dataset.data[idx])
+            avg_psnr = compute_avgpsnr(generated_fake_image, batch_images)
+            avg_psnrs.append(avg_psnr)
 
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
 
     plot_loss_acc(train_loss, train_accuracy, save_location)
+    plot_avg_psnr(avg_psnrs, save_location)
     generate_gif_from_file(os.path.join(save_location, 'fake_images'), os.path.join(save_location, 'training.gif'))
     print('fake images shape:{}'.format(fake_images[0].shape))
     save_grid(fake_images, save_location)
@@ -199,37 +211,4 @@ if __name__ == '__main__':
     print("|---- Avg Train Accuracy: {:.2f}%".format(100*train_accuracy[-1]))
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
 
-    # Saving the objects train_loss and train_accuracy:
-    # file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
-    #     format(args.dataset, args.model, args.epochs, args.frac, args.iid,
-    #            args.local_ep, args.local_bs)
-
-    # with open(file_name, 'wb') as f:
-    #     pickle.dump([train_loss, train_accuracy], f)
-
     print('\n Total Run Time: {0:0.4f}'.format(time.time()-start_time))
-
-    # PLOTTING (optional)
-    # import matplotlib
-    # import matplotlib.pyplot as plt
-    # matplotlib.use('Agg')
-
-    # Plot Loss curve
-    # plt.figure()
-    # plt.title('Training Loss vs Communication rounds')
-    # plt.plot(range(len(train_loss)), train_loss, color='r')
-    # plt.ylabel('Training loss')
-    # plt.xlabel('Communication Rounds')
-    # plt.savefig('./save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_loss.png'.
-    #             format(args.dataset, args.model, args.epochs, args.frac,
-    #                    args.iid, args.local_ep, args.local_bs))
-    #
-    # # Plot Average Accuracy vs Communication rounds
-    # plt.figure()
-    # plt.title('Average Accuracy vs Communication rounds')
-    # plt.plot(range(len(train_accuracy)), train_accuracy, color='k')
-    # plt.ylabel('Average Accuracy')
-    # plt.xlabel('Communication Rounds')
-    # plt.savefig('./save/fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_acc.png'.
-    #             format(args.dataset, args.model, args.epochs, args.frac,
-    #                    args.iid, args.local_ep, args.local_bs))
