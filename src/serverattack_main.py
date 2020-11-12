@@ -180,7 +180,6 @@ if __name__ == '__main__':
             server_adversary.train_generator()
             randz = torch.randn(1, 100, 1, 1, device=device)
             generated_fake_image = generator_model(randz).to('cpu').detach()
-            assert generator_model==server_adversary.adversary_gan_update.modelG
             vutils.save_image(
                 generated_fake_image, os.path.join(save_location, os.path.join('fake_images', 'epoch_{}.png'.format(epoch))))
             fake_images.append(generated_fake_image[0])
