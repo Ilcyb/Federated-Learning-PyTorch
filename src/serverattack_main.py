@@ -17,8 +17,9 @@ import torchvision.utils as vutils
 from options import args_parser
 from update import LocalUpdate, test_inference, AdversaryGanUpdateMnist, AdversaryGanUpdateCifar, AdversaryUpdate, AdversaryGanUpdateSVHN
 from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar, DCGANDiscriminator_mnist, DCGANGenerator_mnist, DCGANDiscriminator_cifar10, DCGANGenerator_cifar10, DCGANDiscriminator_SVHN, DCGANGenerator_SVHN
-from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, get_dataset_idxgroup_ganattack, get_experiment_result_location, save_grid, generate_gif_from_file, generate_gif_from_list,plot_loss_acc
-
+from utils import get_dataset, average_weights, exp_details, get_dataset_ganattack, get_dataset_split_by_label, \
+                  get_dataset_idxgroup_ganattack, get_experiment_result_location, save_grid, generate_gif_from_file, \
+                  generate_gif_from_list,plot_loss_acc, compute_avgpsnr, plot_avg_psnr
 
 if __name__ == '__main__':
     start_time = time.time()
@@ -89,6 +90,7 @@ if __name__ == '__main__':
     fake_images = []
     val_acc_list, net_list = [], []
     cv_loss, cv_acc = [], []
+    avg_psnrs = []
     print_every = 2
     val_loss_pre, counter = 0, 0
     save_location = get_experiment_result_location(args.model, args.dataset,
@@ -176,6 +178,8 @@ if __name__ == '__main__':
                                             idxs=[], logger=logger,
                                             adversary_gan_update=adversary_gan_update,
                                             discriminator_model=global_model_copy)
+        want_targets = (train_dataset.targets == args.wanted_label_index)
+        want_targets = [i for i in range(len(want_targets)) if want_targets[i]==True]
         for epoch in range(args.epochs):
             server_adversary.train_generator()
             randz = torch.randn(1, 100, 1, 1, device=device)
@@ -184,10 +188,19 @@ if __name__ == '__main__':
                 generated_fake_image, os.path.join(save_location, os.path.join('fake_images', 'epoch_{}.png'.format(epoch))))
             fake_images.append(generated_fake_image[0])
 
+            # 随机抽取图片计算 AVG PSNR
+            random_image_idxs = np.random.choice(want_targets, 10, replace=False)
+            batch_images = []
+            for idx in random_image_idxs:
+                batch_images.append(train_dataset.data[idx])
+            avg_psnr = compute_avgpsnr(generated_fake_image, batch_images)
+            avg_psnrs.append(avg_psnr)
+
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
 
     plot_loss_acc(train_loss, train_accuracy, save_location)
+    plot_avg_psnr(avg_psnrs, save_location)
     generate_gif_from_file(os.path.join(save_location, 'fake_images'), os.path.join(save_location, 'training.gif'))
     print('fake images shape:{}'.format(fake_images[0].shape))
     save_grid(fake_images, save_location)
