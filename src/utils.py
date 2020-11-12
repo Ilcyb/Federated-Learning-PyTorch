@@ -238,7 +238,7 @@ def get_experiment_result_location(model:str, dataset:str, label:int, hyperparam
             name_prefix+='_'
         name_prefix+='{}_{}'.format(name, value)
     if experiment_name != None:
-        name_prefix+=experiment_name
+        name_prefix+='_{}'.format(experiment_name)
     current_folder_path = pathlib.Path().absolute()
     if mode == 'debug':
         prefix = os.path.join(current_folder_path, os.path.join(
