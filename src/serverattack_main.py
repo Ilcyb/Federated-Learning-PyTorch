@@ -182,6 +182,9 @@ if __name__ == '__main__':
         want_targets = [i for i in range(len(want_targets)) if want_targets[i]==True]
         for epoch in range(args.epochs):
             server_adversary.train_generator()
+            w = server_adversary.update_weights(global_model_copy, epoch)
+            global_model_copy.load_state_dict(w)
+            server_adversary.update_discriminator(global_model_copy)
             randz = torch.randn(1, 100, 1, 1, device=device)
             generated_fake_image = generator_model(randz).to('cpu').detach()
             vutils.save_image(
