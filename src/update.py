@@ -42,23 +42,11 @@ class AdversaryDataset(Dataset):
         return len(self.data)
 
 class LocalUpdate(object):
-    def __init__(self, args, dataset, idxs, logger, 
-    adversary=False, adversary_update=None, discriminator_model=None):
+    def __init__(self, args, dataset, idxs, logger):
         self.args = args
         self.logger = logger
-        self.adversary = adversary
-        if self.adversary:
-            self.adversary_update = adversary_update
-            self.adversary_update.update_discriminator(discriminator_model)
-            self.adversary_update.trainD()
-            _, fake_datas, fake_targets = self.adversary_update.generate_fake_datas((int)(len(idxs)*0.2))
-            self.adversary_dataloader = DataLoader(AdversaryDataset(fake_datas, fake_targets), 
-                                                    batch_size=args.local_bs, shuffle=True)
-            self.trainloader, self.validloader, self.testloader = self.train_val_test(
-                dataset, list(idxs))
-        else:
-            self.trainloader, self.validloader, self.testloader = self.train_val_test(
-                dataset, list(idxs))
+        self.trainloader, self.validloader, self.testloader = self.train_val_test(
+            dataset, list(idxs))
         self.device = 'cuda' if args.gpu else 'cpu'
         # Default criterion set to NLL loss function
         self.criterion = nn.NLLLoss().to(self.device)
@@ -89,10 +77,10 @@ class LocalUpdate(object):
 
         # Set optimizer for the local updates
         if self.args.optimizer == 'sgd':
-            optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
+            self.optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
                                         momentum=0.5)
         elif self.args.optimizer == 'adam':
-            optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
                                          weight_decay=1e-4)
 
         for iter in range(self.args.local_ep):
@@ -103,7 +91,7 @@ class LocalUpdate(object):
                 log_probs = model(images)
                 loss = self.criterion(log_probs, labels)
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
                 # if self.args.verbose and (batch_idx % 10 == 0):
                     # print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -113,17 +101,6 @@ class LocalUpdate(object):
                 self.logger.add_scalar('loss', loss.item())
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
-
-        if self.adversary:
-            for iter in range(self.args.local_ep):
-                for _, (images, labels) in enumerate(self.adversary_dataloader):
-                    images, labels = images.to(self.device), labels.to(self.device)
-                    model.zero_grad()
-
-                    log_probs = model(images)
-                    loss = self.criterion(log_probs, labels)
-                    loss.backward()
-                    optimizer.step()
 
         return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -151,6 +128,55 @@ class LocalUpdate(object):
         accuracy = correct/total
         return accuracy, loss
 
+
+class AdversaryUpdate(LocalUpdate):
+    def __init__(self, args, dataset, idxs, logger, 
+    adversary_gan_update=None, discriminator_model=None):
+        self.args = args
+        self.logger = logger
+        self.device = 'cuda' if args.gpu else 'cpu'
+        # Default criterion set to NLL loss function
+        self.criterion = nn.NLLLoss().to(self.device)
+        self.adversary_gan_update = adversary_gan_update
+        self.discriminator_model = discriminator_model
+        # self.train_dataset = dataset
+        self.idxs = idxs
+        self.device = 'cuda' if args.gpu else 'cpu'
+        # Default criterion set to NLL loss function
+        self.criterion = nn.NLLLoss().to(self.device)
+
+    def train_generator(self):
+        self.adversary_gan_update.update_discriminator(self.discriminator_model)
+        self.adversary_gan_update.trainD()
+        _, fake_datas, fake_targets = self.adversary_gan_update.generate_fake_datas(100)
+        self.adversary_dataloader = DataLoader(AdversaryDataset(fake_datas, fake_targets), 
+                                                batch_size=self.args.local_bs, shuffle=True)
+
+    def update_weights(self, model, global_round):
+        # 服务器不针对常规数据集进行训练
+        # model_state_dict, epoch_loss = super(AdversaryUpdate, self).update_weights(model, global_round)
+        # model.load_state_dict(model_state_dict)
+        # 服务器攻击需要
+        if self.args.optimizer == 'sgd':
+            self.optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
+                                        momentum=0.5)
+        elif self.args.optimizer == 'adam':
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
+                                         weight_decay=1e-4)
+
+        model.train()
+
+        for _ in range(self.args.local_ep):
+            for _, (images, labels) in enumerate(self.adversary_dataloader):
+                images, labels = images.to(self.device), labels.to(self.device)
+                model.zero_grad()
+
+                log_probs = model(images)
+                loss = self.criterion(log_probs, labels)
+                loss.backward()
+                self.optimizer.step()
+
+        return model.state_dict()
 
 def test_inference(args, model, test_dataset):
     """ Returns the test accuracy and loss.
@@ -189,7 +215,7 @@ def weight_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-class AdversaryUpdateMnist(object):
+class AdversaryGanUpdate():
     def __init__(self, discriminator_model, generator_model, args, 
     logger, want_label_index, false_label_index=10) -> None:
         self.args = args
@@ -200,13 +226,12 @@ class AdversaryUpdateMnist(object):
         self.modelD = discriminator_model.to(self.device)
         self.modelG = generator_model.to(self.device)
         self.modelG.apply(weight_init)
-        self.args = args
         self.want_label_index = want_label_index
         self.false_label_index = false_label_index
         self.batch_size = args.local_gan_bs
         # size of generate input
         self.nz = 100
-        self.lr = 0.002
+        self.lr = args.local_gan_lr
         self.beta1 = 0.5
 
     def update_discriminator(self, discriminator_model):
@@ -217,7 +242,7 @@ class AdversaryUpdateMnist(object):
         #     optimizer = torch.optim.SGD(self.modelG.parameters(), lr=self.args.lr,
         #                                 momentum=0.5)
         optimizer = torch.optim.Adam(self.modelG.parameters(), lr=self.lr, betas=(self.beta1, 0.999))
-        for epoch in range(self.args.local_gan_epoch):
+        for _ in range(self.args.local_gan_epoch):
             noise = torch.randn(self.batch_size, self.nz, 1, 1, device=self.device)
             fake = self.modelG(noise)
             self.modelG.zero_grad()
@@ -237,3 +262,21 @@ class AdversaryUpdateMnist(object):
             fake_images.append(fake_tensors[i].detach())
             fake_labels.append(self.false_label_index)
         return ['fake - 10'], fake_images, fake_labels
+
+class AdversaryGanUpdateMnist(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateMnist, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
+
+class AdversaryGanUpdateCifar(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
+
+class AdversaryGanUpdateSVHN(AdversaryGanUpdate):
+    def __init__(self, discriminator_model, generator_model, args, 
+    logger, want_label_index, false_label_index=10) -> None:
+        super(AdversaryGanUpdateCifar, self).__init__(discriminator_model, generator_model,
+        args, logger, want_label_index, false_label_index)
